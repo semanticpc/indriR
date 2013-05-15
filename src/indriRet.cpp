@@ -243,8 +243,6 @@ public:
     }
 
     SEXP setScoringRules(string method){
-        //environment.setBaseline();
-        environment.setBaseline();
         return R_NilValue;
     }
 
