@@ -1,0 +1,3 @@
+useDynLib(indriR)
+exportPattern("^[[:alpha:]]+")
+import(Rcpp)
