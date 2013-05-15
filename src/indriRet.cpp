@@ -243,8 +243,6 @@ public:
     }
 
     SEXP setScoringRules(string method){
-        //environment.setBaseline();
-        environment.setBaseline();
         return R_NilValue;
     }
 
@@ -280,7 +278,7 @@ public:
         return Rcpp::wrap(true);
     }
 
-    SEXP generateResults(string _qno, string _query, int _documentLimit) {
+    SEXP generateResults(string _qno, string _query, int _documentLimit, bool stats) {
 
         resultsData = resultsData_nullCopy;
         documentIDs.clear();
@@ -307,10 +305,11 @@ public:
             scores.push_back(results[i].score);
         }
         extDocIDs = environment.documentMetadata(documentIDs, "docno");
-
-        updateQueryDetails(environment, resultsData, query);
-        countGrams();
-        buildStats();
+        if(stats){
+            updateQueryDetails(environment, resultsData, query);
+            countGrams();
+            buildStats();
+        }
 
         return Rcpp::wrap(true);
     }

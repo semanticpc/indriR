@@ -10,7 +10,7 @@ open_index <- function(path, server=F) {
 }
 test <- function(){
   index <- open_index("/Users/semanticpc/work/data/index/newswire/title")
-  index$generateResults( "1", "world war", 1)
+  index$generateResults( "1", "world war", 1, F)
   index$generateSnippets()
 }
 # 
