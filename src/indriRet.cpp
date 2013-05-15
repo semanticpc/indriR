@@ -243,7 +243,11 @@ public:
     }
 
     SEXP setScoringRules(string method){
+<<<<<<< HEAD
         //environment.setBaseline();
+=======
+        environment.setBaseline();
+>>>>>>> 84e8fa42364297360e1c7b129a4408a9b7000511
         return R_NilValue;
     }
 
