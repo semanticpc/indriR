@@ -9,7 +9,7 @@ open_index <- function(path, server=F) {
   return(index)
 }
 test <- function(){
-  index <- open_index("/Users/semanticpc/work/data/index/newswire/title")
+  index <- open_index("/Users/semanticpc/work/data/index/clueweb09_sample")
   index$generateResults( "1", "world war", 1, F)
   index$generateSnippets()
 }

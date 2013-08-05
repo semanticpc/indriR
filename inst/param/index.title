@@ -1,0 +1,15 @@
+<!-- index all docs, titles only, with spam scores -->
+  <parameters>
+  <index>/Users/semanticpc/work/data/index/newswire/title</index>
+  <memory>3G</memory>
+  <storeDocs>true</storeDocs>
+  <corpus>
+  <path>/Users/semanticpc/work/data/collections/newswire.pub</path>
+  <class>trectext</class>
+  </corpus>
+  <stemmer><name>krovetz</name></stemmer>
+  <field><name>HEADLINE</name></field>
+  <field><name>spam</name><numeric>true</numeric></field>
+  <field><name>P</name></field>
+  <metadata><field>HEADLINE</field></metadata> 
+</parameters>

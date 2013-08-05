@@ -1,0 +1,15 @@
+<!-- index some docs (spam score less than -200), full doc, store docs -->
+<parameters>
+  <index>/Users/semanticpc/work/data/index/clueweb09_sample</index>
+  <memory>2G</memory>
+  <storeDocs>true</storeDocs>
+  <corpus>
+    <path>/Users/semanticpc/work/data/collections/clueweb09</path>
+    <class>warc</class>
+  </corpus>
+  <stemmer><name>krovetz</name></stemmer>
+  <field><name>title</name></field>
+  <field><name>heading</name></field>
+  <field><name>spam</name><numeric>true</numeric></field>
+  <field><name>url</name></field>
+</parameters> 

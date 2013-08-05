@@ -9,22 +9,81 @@ using namespace std;
 
 class Index {
 public:
+    struct Gram {
+		//std::vector<std::string> terms;
+		std::string term;
+		int internal_termID;
+
+		struct hash {
+			int operator() ( const Gram* one ) const {
+				indri::utility::GenericHash<const char*> h;
+				int accumulator = 0;
+
+				//for( size_t i=0; i<one->terms.size(); i++ ) {
+					accumulator *= 7;
+					accumulator += h( one->term.c_str() );
+					//}
+
+					return accumulator;
+			}
+		};
+
+
+		struct weight_greater {
+			bool operator() ( const Gram* o, const Gram* t ) const {
+				return t->internal_termID > o->internal_termID;
+			}
+		};
+
+		struct string_comparator {
+			int operator() ( const Gram* o, const Gram* t ) const {
+				const Gram& one = *o;
+				const Gram& two = *t;
+
+				/*if( one.terms.size() != two.terms.size() ) {
+    	                    if( one.terms.size() < two.terms.size() ) {
+    	                      return 1;
+    	                    } else {
+    	                      return -1;
+    	                    }
+    	                  }*/
+
+				//for( size_t i=0; i<one.terms.size(); i++ ) {
+				const std::string& oneString = one.term;//s[i];
+				const std::string& twoString = two.term;//s[i];
+
+				if( oneString != twoString ) {
+					if( oneString < twoString )
+						return -1;
+					else
+						return 1;
+				}
+				//}
+
+				return 0;
+			}
+		};
+	};
+
     struct Results{
         map<string, int> queryStems;
         map<string, int> queryStemIndex;
-        map<string, int> fieldIndex;
         vector<string> queryStemOrder;
-        arma::cube tfMatrix;
-        arma::mat dfVector;
-        arma::mat ctfVector;
-
+        arma::mat tfMatrix;
+        arma::vec dfVector;
+        arma::vec ctfVector;
     };
 
+    struct GramCounts {
+         Gram gram;
+         indri::utility::greedy_vector< std::pair< int, int > > counts;
+     };
 
-    indri::utility::HashTable< string, int> termIDs;
+    typedef indri::utility::HashTable< Gram*, GramCounts*, Gram::hash, Gram::string_comparator > HGram;
 
 private:
 
+    HGram _gramTable;
     std::vector<string> terms;
     indri::api::QueryEnvironment environment;
 
@@ -132,31 +191,9 @@ public:
                     Named("runID")= res_runid);
         }
 
-
-    SEXP runIndriModel(){
+    SEXP runQuery(string _qno, string _query, int _documentLimit, string _runid="default"){
         indri::api::QueryAnnotation* qa;
-        qa = environment.runAnnotatedQuery(query, documentIDs, documentLimit);
-
-        std::vector<indri::api::ScoredExtentResult> results = qa->getResults();
-        //_logtoposterior(results);
-
-        // Extract Documents
-        std::vector<lemur::api::DOCID_T> documentIDs;
-        std::vector<double> scores;
-        for (size_t i = 0; i < results.size(); i++){
-            documentIDs.push_back(results[i].document);
-            scores.push_back(results[i].score);
-        }
-
-        std::vector<string> extDocIDs = environment.documentMetadata(documentIDs, "docno");
-        Rcpp::NumericVector result = wrap(scores);
-        result.attr("names") = extDocIDs;
-        return result;
-    }
-
-    SEXP runQuery(string _qno, string _query, string _runid="default"){
-        indri::api::QueryAnnotation* qa;
-        qa = environment.runAnnotatedQuery(_query, documentIDs, documentLimit);
+        qa = environment.runAnnotatedQuery(_query, _documentLimit);
 
         std::vector<indri::api::ScoredExtentResult> results = qa->getResults();
         //_logtoposterior(results);
@@ -171,8 +208,8 @@ public:
         vector<string> res_qno;
         vector<string> res_q0;
         vector<string> res_runid;
-//
-//        int documentLimit = _documentLimit;
+
+        int documentLimit = _documentLimit;
 
         for(int i=0; i < documentLimit; i++){
             res_qno.push_back(qno);
@@ -194,7 +231,7 @@ public:
         scores.clear();
         extDocIDs.clear();
         terms.clear();
-        termIDs.clear();
+        _gramTable.clear();
         results.clear();
         qno = _qno;
         query = _query;
@@ -227,7 +264,7 @@ public:
         scores.clear();
         extDocIDs.clear();
         terms.clear();
-        termIDs.clear();
+        _gramTable.clear();
         results.clear();
         qno = _qno;
         query = _query;
@@ -293,7 +330,7 @@ public:
         for(int i=0; i < resultsData.queryStemOrder.size(); i++ ){
             string term = resultsData.queryStemOrder.at(i);
             qTF.push_back(resultsData.queryStems[term]);
-            qIndex.push_back(resultsData.queryStemIndex[term] + 1);
+            qIndex.push_back(resultsData.queryStemIndex[term]);
         }
         DataFrame d = DataFrame::create( Named("qTF")= qTF,
                                 Named("qIndex") = qIndex);
@@ -302,16 +339,17 @@ public:
 
     }
 
-    SEXP getTermStats(string fname){
+    SEXP getTermStats(){
 
-        int findex = resultsData.fieldIndex[fname];
+        vector<string> statName;
+        statName.push_back("DocFreq");
+        statName.push_back("IDF");
+        statName.push_back("cTF");
         arma::vec idf = arma::log((environment.documentCount() + 1) /
-                (resultsData.dfVector.col(findex) + 0.5));
-        arma::vec df = resultsData.dfVector.col(findex);
-        arma::vec ctf = resultsData.ctfVector.col(findex);
-        DataFrame d = DataFrame::create(Named("DocFreq")=df,
+                (resultsData.dfVector + 0.5));
+        DataFrame d = DataFrame::create(Named("DocFreq")=resultsData.dfVector,
                                         Named("IDF")=idf,
-                                        Named("cTF")=ctf);
+                                        Named("cTF")=resultsData.ctfVector);
         d.attr("row.names") = terms;
         return d;
     }
@@ -320,32 +358,30 @@ public:
 
     // Other Functions
 
-    SEXP getTFMatrix(string fname){
-        int findex = resultsData.fieldIndex[fname];
+    SEXP getDocTermMatrix(string termWeighting){
         Rcpp::List dimnms = Rcpp::List::create(extDocIDs, terms);
+        if(termWeighting == "tf"){
+            NumericMatrix d = Rcpp::wrap(resultsData.tfMatrix);
+            d.attr("dimnames") = dimnms;
+            return d;
+        }else if(termWeighting == "tf_normalized"){
+            arma::mat tfnorm = resultsData.tfMatrix;
+            arma::rowvec docLen = arma::sum(tfnorm, 0);
+            tfnorm.each_row() /= docLen;
+            NumericMatrix d = Rcpp::wrap(tfnorm);
+            d.attr("dimnames") = dimnms;
+            return d;
+        }else if(termWeighting == "tfidf"){
+            arma::mat tfidfMat = resultsData.tfMatrix;
+            arma::vec idf = arma::log((environment.documentCount() + 1) /
+                    (resultsData.dfVector + 0.5));
+            tfidfMat.each_row() %= idf.t();
+            NumericMatrix d = Rcpp::wrap(tfidfMat);
+            d.attr("dimnames") = dimnms;
+            return d;
+        }else if(termWeighting == "idf"){
 
-        NumericMatrix d = Rcpp::wrap(resultsData.tfMatrix.slice(findex));
-        d.attr("dimnames") = dimnms;
-        return d;
-//        }else if(termWeighting == "tf_normalized"){
-//            arma::mat tfnorm = resultsData.tfMatrix.slice(findex);
-//            arma::rowvec docLen = arma::sum(tfnorm, 0);
-//            tfnorm.each_row() /= docLen;
-//            NumericMatrix d = Rcpp::wrap(tfnorm);
-//            d.attr("dimnames") = dimnms;
-//            return d;
-//        }else if(termWeighting == "tfidf"){
-//            arma::mat tfidfMat = resultsData.tfMatrix.slice(findex);
-//            arma::vec idf = arma::log((environment.documentCount() + 1) /
-//                    (resultsData.dfVector + 0.5));
-//            tfidfMat.each_row() %= idf.t();
-//
-//            NumericMatrix d = Rcpp::wrap(tfidfMat);
-//            d.attr("dimnames") = dimnms;
-//            return d;
-//        }else if(termWeighting == "idf"){
-//
-//        }
+        }
 
 
     }
@@ -436,77 +472,51 @@ public:
     void countGrams() {
         std::vector<indri::api::DocumentVector*> vectors =
                 environment.documentVectors( documentIDs );
-
-        int termCount = -1;
-
+        // for each query result
         for( size_t i=0; i< results.size(); i++ ) {
-            indri::api::ScoredExtentResult& result = results[i];
-            indri::api::DocumentVector* v = vectors[i];
-            std::vector<int>& positions = v->positions();
-            std::vector<std::string>& stems = v->stems();
-            std::vector< indri::api::DocumentVector::Field >& fields = v->fields();
-
-
-
-            if (result.end == 0) result.end = positions.size();
-            for( int j = result.begin; j < result.end; j++ ) {
-                bool containsOOV = false;
-                if( positions[ j ] == 0 || (! isValid(stems[ positions[ j ] ])) ) {
-                    containsOOV = true;
-                    continue;
-                }
-                string term =  stems[ positions[ j ] ] ;
-                if( termIDs.find(term) == 0 )
-                    termIDs.insert(term, ++termCount);
-            }
-        }
-
-        vector<string> flVec = environment.fieldList();
-        resultsData.fieldIndex["all"] = 0;
-        for(int fl=0; fl <  flVec.size(); fl++)
-            resultsData.fieldIndex[flVec[fl]] = fl + 1;
-
-        resultsData.tfMatrix = arma::zeros(results.size(), termIDs.size(), flVec.size() + 1);
-        for( size_t i=0; i< results.size(); i++ ) {
+            // run through the text, extracting n-grams
             indri::api::ScoredExtentResult& result = results[i];
             indri::api::DocumentVector* v = vectors[i];
             std::vector<int>& positions = v->positions();
             std::vector<std::string>& stems = v->stems();
             std::vector< indri::api::DocumentVector::Field >& fields = v->fields();
             if (result.end == 0) result.end = positions.size();
+            // for each word position in the text
             for( int j = result.begin; j < result.end; j++ ) {
+                //int maxGram = std::min( _maxGrams, result.end - j );
+
+                GramCounts* newCounts = new GramCounts;
                 bool containsOOV = false;
+
+                // build the gram
 
                 if( positions[ j ] == 0 || (! isValid(stems[ positions[ j ] ])) ) {
                     containsOOV = true;
                     continue;
                 }
-                string term =  stems[ positions[ j ] ] ;
 
-                int id = (*termIDs.find(term));
-                resultsData.tfMatrix(i, id, 0) += 1;
-            }
-            for( int f = 0; f < fields.size(); f++ ) {
-                map<string, int>::iterator iter = resultsData.fieldIndex.find(fields[f].name);
-                int f_index = -1;
-                if(iter != resultsData.fieldIndex.end())
-                    f_index = resultsData.fieldIndex[fields[f].name];
-                else{
-                    cout << fields[f].name << endl;
-                    continue;
+                newCounts->gram.term =  stems[ positions[ j ] ] ;
+                if( containsOOV ) {
+                    // if this contanied OOV, all larger n-grams
+                    // starting at this point also will
+                    delete newCounts;
+                    break;
                 }
 
-                for( int j = fields[f].begin; j < fields[f].end; j++ ) {
-                    bool containsOOV = false;
-
-                    if( positions[ j ] == 0 || (! isValid(stems[ positions[ j ] ])) ) {
-                        containsOOV = true;
-                        continue;
-                    }
-                    string term =  stems[ positions[ j ] ] ;
-
-                    int id = (*termIDs.find(term));
-                    resultsData.tfMatrix(i, id, f_index) += 1;
+                GramCounts** gramCounts = 0;
+                gramCounts = _gramTable.find( &newCounts->gram );
+                if( gramCounts == 0 ) {
+                    _gramTable.insert( &newCounts->gram, newCounts );
+                    gramCounts = &newCounts;
+                } else {
+                    delete newCounts;
+                }
+                if( (*gramCounts)->counts.size() && (*gramCounts)->counts.back().first == i ) {
+                    // we already have some counts going for this query result, so just add this one
+                    (*gramCounts)->counts.back().second++;
+                } else {
+                    // no counts yet in this document, so add an entry
+                    (*gramCounts)->counts.push_back( std::make_pair( i, 1 ) );
                 }
             }
         }
@@ -515,40 +525,35 @@ public:
     }
 
     void buildStats() {
-            resultsData.ctfVector = arma::zeros(termIDs.size(), resultsData.fieldIndex.size());
-            resultsData.dfVector = arma::zeros(termIDs.size(), resultsData.fieldIndex.size());
-            terms = std::vector<string>(termIDs.size(), "");
-            indri::utility::HashTable<string, int>::iterator iter;
-            for( iter = termIDs.begin(); iter != termIDs.end(); iter++ ) {
-                string term = *iter->first;
-                int id = *iter->second;
-                terms.at(id) = term;
-                 if( resultsData.queryStems.find(term) != resultsData.queryStems.end() )
-                    resultsData.queryStemIndex[term] = id;
+        HGram::iterator iter;
+        resultsData.tfMatrix = arma::zeros<arma::mat>(results.size(),
+                                                      _gramTable.size());
+        // Initialize the
+        resultsData.dfVector.set_size(_gramTable.size());
+        resultsData.ctfVector.set_size(_gramTable.size());
 
-                resultsData.ctfVector(id, 0) = environment.stemCount(term);
-                resultsData.dfVector(id, 0) =  environment.documentStemCount(term);
-                map<string, int>::iterator fl_iter;
-                for(fl_iter = resultsData.fieldIndex.begin() ;
-                        fl_iter != resultsData.fieldIndex.end(); fl_iter++ ) {
-                    string fl_name = fl_iter->first;
-                    int fl_index = fl_iter->second;
-                    resultsData.ctfVector(id, fl_index) = environment.stemFieldCount(term, fl_name);
+        int tmpTermID = -1;
+        for( iter = _gramTable.begin(); iter != _gramTable.end(); iter++ ) {
+            double gramCount = 0;
+            ++tmpTermID;
+            Gram* gram = *iter->first;
+            GramCounts* gramCounts = *iter->second;
+            gram->internal_termID = tmpTermID;
+            terms.push_back(gram->term);
+             if( resultsData.queryStems.find(gram->term) != resultsData.queryStems.end() )
+                resultsData.queryStemIndex[gram->term] = tmpTermID;
+
+            resultsData.ctfVector(tmpTermID) = environment.stemCount(gram->term);
+            resultsData.dfVector(tmpTermID) =  environment.documentStemCount(gram->term);
+            size_t c, r;
+            for( r = 0, c = 0; r < results.size() && c < gramCounts->counts.size(); r++ ) {
+                if( gramCounts->counts[c].first == r ) {
+                    resultsData.tfMatrix(r, tmpTermID) = gramCounts->counts[c].second;
+                    c++;
                 }
-
             }
-
-            map<string, int>::iterator fl_iter;
-            for(fl_iter = resultsData.fieldIndex.begin() ;
-                    fl_iter != resultsData.fieldIndex.end(); fl_iter++ ) {
-                    string fl_name = fl_iter->first;
-                    int fl_index = fl_iter->second;
-                    arma::mat tf_mat = resultsData.tfMatrix.slice(fl_index);
-                    arma::umat df_mat =   tf_mat > arma::zeros(tf_mat.n_rows,tf_mat.n_cols);
-                    resultsData.dfVector.col(fl_index) = arma::conv_to<arma::mat>::from(sum(df_mat, 0)).t();
-            }
-
-
+        }
+        _gramTable.clear();
     }
 };
 
@@ -581,8 +586,6 @@ RCPP_MODULE(Index) {
     .method("generateResultsFromSet", &Index::generateResultsFromSet, "Test Documentation")
     .method("getRanking", &Index::getRanking, "Test Documentation")
     .method("runQuery", &Index::runQuery, "Test Documentation")
-    .method("runIndriModel", &Index::runIndriModel, "Test Documentation")
-
 
     // Term and Query Statistics
     .method("getTermStats", &Index::getTermStats, "Test Documentation")
@@ -590,8 +593,9 @@ RCPP_MODULE(Index) {
 
 
     // Other Features
-    .method("getTFMatrix", &Index::getTFMatrix, "Test Documentation")
+    .method("getDocTermMatrix", &Index::getDocTermMatrix, "Test Documentation")
     .method("getDocumentLengths", &Index::getDocumentLengths, "Test Documentation")
     .method("generateSnippets", &Index::generateSnippets, "Test Documentation")
     .method("getMetaData", &Index::getMetaData, "Test Documentation");
 }
+
