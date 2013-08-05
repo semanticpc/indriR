@@ -10,8 +10,9 @@ getSpamScore <- function(indriIndex){
   return(data.frame(spam=spam))
 }
 
-getEntropy <- function(docTermMatrix, docLen){
+getEntropy <- function(docTermMatrix){
 
+  docLen <- colSums(docTermMatrix)
   entropy <- c()
   for(i in 1:nrow(docTermMatrix)){
     p_w <- docTermMatrix[i,] / docLen[i]

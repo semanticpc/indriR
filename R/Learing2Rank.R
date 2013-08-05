@@ -18,7 +18,7 @@ getFeatures <- function(qno, query, indriIndex){
   features <- getPageRank(indriIndex)
   
   features <- cbind(features, getSpamScore(indriIndex))
-  features <- cbind(features, getEntropy(docTermMatrix, docLen))
+  features <- cbind(features, getEntropy(docTermMatrix))
   features <- cbind(features, getURLFeatures(indriIndex))
   
   ##############################################################################
